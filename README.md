@@ -2,7 +2,8 @@
 ## For WIKO Hi GT Cube and similar USB4 eGPU docks
 
 This guide was written based on real troubleshooting experience with a **WIKO Hi GT Cube (AMD Radeon RX 7600M XT)** connected via USB4 to a **Huawei MateBook 16s**. The fixes should work for any USB4 eGPU setup with Intel USB4 host router on Windows 11.
-> **Note:** As of 13 March 2026, there are no other known troubleshooting guides for the WIKO Hi GT Cube. News coverage exists ([Tom's Hardware](https://www.tomshardware.com/pc-components/gpus/this-external-amd-gpu-is-also-a-laptop-charger), [NotebookCheck](https://www.notebookcheck.net/WIKO-Hi-GT-Cube-external-GPU-launches-alongside-Huawei-MateBook-GT-14-gaming-laptop.870855.0.html)) but no community troubleshooting. This guide documents real-world fixes discovered through hands-on debugging.
+> **Note:** As of 13 March 2026, there are no other known troubleshooting guides for the WIKO Hi GT Cube. News coverage exists ([Tom's Hardware](https://www.tomshardware.com/pc-components/gpus/this-external-amd-gpu-is-also-a-laptop-charger), [NotebookCheck](https://www.notebookcheck.net/WIKO-Hi-GT-Cube-external-GPU-launches-alongside-Huawei-MateBook-GT-14-gaming-laptop.870855.0.html)) but no community troubleshooting. This guide documents real-world fixes discovered through hands-on debugging. It's possible these issues were triggered by a bad Windows update and most users never encountered them — but if there's even one person in the world with the same problem who finds this guide, it was worth writing.
+> 
 All commands run in **PowerShell as Administrator**.
 
 ---
