@@ -2,13 +2,21 @@
 ## For WIKO Hi GT Cube and similar USB4 eGPU docks
 
 This guide was written based on real troubleshooting experience with a **WIKO Hi GT Cube (AMD Radeon RX 7600M XT)** connected via USB4 to a **Huawei MateBook 16s**. The fixes should work for any USB4 eGPU setup with Intel USB4 host router on Windows 11.
-> **Note:** As of 13 March 2026, there are no other known troubleshooting guides for the WIKO Hi GT Cube. News coverage exists ([Tom's Hardware](https://www.tomshardware.com/pc-components/gpus/this-external-amd-gpu-is-also-a-laptop-charger), [NotebookCheck](https://www.notebookcheck.net/WIKO-Hi-GT-Cube-external-GPU-launches-alongside-Huawei-MateBook-GT-14-gaming-laptop.870855.0.html)) but no community troubleshooting. This guide documents real-world fixes discovered through hands-on debugging. It's possible these issues were triggered by a bad Windows update and most users never encountered them — but if there's even one person in the world with the same problem who finds this guide, it was worth writing.
+> **Note:** As of 13 March 2026, there are no other known troubleshooting guides for the WIKO Hi GT Cube. News coverage exists ([Tom's Hardware](https://www.tomshardware.com/pc-components/gpus/this-external-amd-gpu-is-also-a-laptop-charger), [NotebookCheck](https://www.notebookcheck.net/WIKO-Hi-GT-Cube-external-GPU-launches-alongside-Huawei-MateBook-GT-14-gaming-laptop.870855.0.html)) but no community troubleshooting. This guide documents real-world fixes discovered through hands-on debugging. It's possible these issues were triggered by a bad Windows update and most users never encountered them, but if there's even one person in the world with the same problem who finds this guide, it was worth writing.
 > 
 All commands run in **PowerShell as Administrator**.
 
 ---
 
-## ⚡ Do These Once — Prevents Most Problems
+## ⚡ Do These Once. Prevents Most Problems
+
+### 0. The most common situation: dock connects, GPU appears in Device Manager with **Disabled** status, no video output. Just run:
+```powershell
+$gpu = Get-PnpDevice | Where-Object { $_.InstanceId -like "*VEN_1002*DEV_7480*" }
+Enable-PnpDevice -InstanceId $gpu.InstanceId -Confirm:$false
+```
+
+Or via Device Manager: find **AMD Radeon RX 7600M XT** → right-click → **Enable device**.
 
 ### 1. Disable USB Selective Suspend
 
@@ -27,7 +35,9 @@ powercfg /query SCHEME_CURRENT 2a737441-1930-4402-8d77-b2bebba308a3
 
 ### 2. Disable Fast Startup
 
-Fast Startup (hibernate-based) prevents proper USB4 PCIe tunnel negotiation on next boot.
+Fast Startup saves the kernel session to disk instead of doing a full shutdown. 
+On next boot, USB4 devices don't get a clean re-enumeration, the tunnel may 
+not initialize correctly. This is a known issue with Thunderbolt and USB4 docks.
 
 ```powershell
 powercfg /hibernate off
@@ -37,9 +47,12 @@ Or via: Control Panel → Power Options → Choose what the power buttons do →
 
 ---
 
-## 🔍 Device Discovery — Find Your IDs First
+# Troubleshooting
+> Not sure where to start? Jump to the [Decision Tree](#-decision-tree) first.
+## 🔍 Device Discovery : Find Your IDs First
 
-Before running any fix, understand your hardware. Every device has a unique InstanceId — some parts are hardware-specific and will differ from this guide. Run these commands once to map your setup.
+
+Before running any fix, understand your hardware. Every device has a unique InstanceId. Some parts are hardware-specific and will differ from this guide. Run these commands once to map your setup.
 
 ### Full USB4 stack:
 ```powershell
@@ -83,9 +96,9 @@ Get-PnpDeviceProperty -InstanceId (
 
 | Code | Meaning |
 |------|---------|
-| `Empty` | Device not on PCIe bus — tunnel not established |
+| `Empty` | Device not on PCIe bus, tunnel not established |
 | `0` | No problem |
-| `43` | Driver error — reinstall AMD driver |
+| `43` | Driver error. Reinstall AMD driver |
 | `28` | No drivers installed |
 
 > **Tip:** Run the discovery commands and save the output somewhere. When something breaks, compare current state to the known-good state.
@@ -96,7 +109,7 @@ Get-PnpDeviceProperty -InstanceId (
 
 ### Fix 1. GPU not coming up after connecting dock
 
-Restarts the Intel USB4 Host Router — forces PCIe tunnel renegotiation.
+Restarts the Intel USB4 Host Router and forces PCIe tunnel renegotiation.
 
 ```powershell
 $usb4 = Get-PnpDevice | Where-Object { $_.InstanceId -like "*USB4_MS_CM*" }
@@ -105,7 +118,7 @@ pnputil /restart-device $usb4.InstanceId
 
 Wait 10 seconds, then check status.
 
-> **Other hardware:** `USB4_MS_CM` pattern works across Intel 12th/13th/14th gen. If multiple results appear, use the one with `VEN_8086` in the InstanceId.
+> **Other hardware:** `USB4_MS_CM` pattern works across Intel 12th/13th/14th gen. If multiple results appear, use the one with `VEN_8086` in the InstanceId. If no results appear, find your ID with the [discovery commands](#-device-discovery--find-your-ids-first).
 
 ---
 
@@ -133,15 +146,15 @@ Start-Sleep -Seconds 3
 Enable-PnpDevice -InstanceId $gpu.InstanceId -Confirm:$false
 ```
 
-> **Other hardware:** `DEV_7480` = AMD RX 7600M XT. Replace with your GPU's DEV ID (find it with the discovery commands above).
+> **Other hardware:** `DEV_7480` = AMD RX 7600M XT. Replace with your GPU's DEV ID (find it with the [discovery commands](#-device-discovery--find-your-ids-first) above).
 
 ---
 
 ### Fix 4. DisplayPort not working (only HDMI works)
 
-HDMI goes through PCIe directly. DP uses a separate USB4 DisplayPort tunnel — if that tunnel fails, it needs to be recreated.
+HDMI goes through PCIe directly. DP uses a separate USB4 DisplayPort tunnel. If that tunnel fails, it needs to be recreated.
 
-**Step 4a — List your downstream ports:**
+**Step 4a. List your downstream ports:**
 ```powershell
 Get-PnpDevice | Where-Object {
     $_.FriendlyName -like "*Downstream Switch*" -and
@@ -150,9 +163,9 @@ Get-PnpDevice | Where-Object {
 } | Format-List FriendlyName, InstanceId
 ```
 
-You should see 3 ports. **Identify which one is the DP tunnel:** it's the port whose removal causes your monitor signal to drop. On WIKO Hi GT Cube it's the port with the lowest address suffix (sorted first alphabetically).
+You should see 3 ports. **Identify which one is the DP tunnel:** it's the port whose removal causes your monitor signal to drop. On WIKO Hi GT Cube it's the port with the lowest address suffix in the InstanceId.
 
-**Step 4b — Remove all three, DP tunnel port last:**
+**Step 4b. Remove all three, DP tunnel port last:**
 ```powershell
 $ports = Get-PnpDevice | Where-Object {
     $_.FriendlyName -like "*Downstream Switch*" -and
@@ -176,7 +189,7 @@ Wait a few seconds. DP should come back.
 
 ---
 
-### Fix 5. Nothing works — full cold boot sequence
+### Fix 5. Nothing works: full cold boot sequence
 
 The dock firmware has hung internally. Software fixes won't help.
 
@@ -188,40 +201,21 @@ The dock firmware has hung internally. Software fixes won't help.
 6. Connect USB4 cable
 7. If GPU doesn't appear, run Fix 1
 
-> **Why boot without dock?** PCIe tunnel negotiation happens at USB4 connect time. Hot-plugging after a clean Windows boot is more reliable than booting with the dock already connected, especially after a firmware hang.
+> **Why boot without dock?** When the dock firmware hangs, neither approach is guaranteed. Try both: boot without dock then hot-plug, or boot with dock already connected. One of them usually works depending on the state of the firmware.
 
 ---
 
-## 🔁 Auto-Enable Script (Use With Caution)
+### Fix 6. GPU comes up on wrong driver (Basic Display Adapter)
 
-This script monitors for the GPU appearing in Unknown state and enables it automatically. Useful if your GPU consistently requires a manual enable after connecting.
-
-> ⚠️ **Important warning:** If the dock or DP connection is unstable (rapidly connecting/disconnecting), this script will spam enable calls and can make the GPU driver hang or cause a dropout loop. **Do not run this script while actively troubleshooting connection issues.** Only use it after the connection is stable.
-
-Save as `AMD_eGPU_Enable.ps1`:
-
+Occasionally after a tunnel reset the GPU loads with the Microsoft Basic Display Adapter driver instead of the AMD driver. You can verify:
 ```powershell
-while ($true) {
-    $gpu = Get-PnpDevice | Where-Object {
-        $_.InstanceId -like "*VEN_1002*DEV_7480*" -and $_.Status -eq "Unknown"
-    }
-    if ($gpu) {
-        Enable-PnpDevice -InstanceId $gpu.InstanceId -Confirm:$false
-        Start-Sleep -Seconds 5  # debounce — do not remove this
-    }
-    Start-Sleep -Seconds 7
-}
+Get-CimInstance -ClassName Win32_VideoController | Select-Object Name, CurrentHorizontalResolution, CurrentVerticalResolution
+
+# Also useful: list all PCI devices on the bus to see what's actually there
+pnputil /enum-devices /bus PCI | findstr /i "AMD\|Radeon\|1002"
 ```
 
-Add to Task Scheduler (runs at login, hidden window):
-```powershell
-$action = New-ScheduledTaskAction -Execute "powershell.exe" `
-    -Argument "-WindowStyle Hidden -ExecutionPolicy Bypass -File C:\Scripts\AMD_eGPU_Enable.ps1"
-$trigger = New-ScheduledTaskTrigger -AtLogOn
-$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit 0
-Register-ScheduledTask -TaskName "AMD_eGPU_Enable" -Action $action `
-    -Trigger $trigger -Settings $settings -RunLevel Highest -Force
-```
+If the GPU shows with no resolution or wrong name — uninstall the device from Device Manager (check "Delete the driver software for this device"), then run `pnputil /scan-devices`. Windows will reinstall the correct AMD driver automatically. If it doesn't — reinstall AMD Adrenalin cleanly using DDU in Safe Mode.
 
 ---
 
@@ -233,6 +227,9 @@ eGPU problem?
 ├─ Dock visible in Settings → Bluetooth & devices → USB4?
 │   ├─ NO  → Check cable / dock power / try different USB4 port
 │   └─ YES → continue
+│
+├─ GPU Status = Disabled?
+│   └─ YES → Enable-PnpDevice (see "Do These Once", step 0)
 │
 ├─ GPU Status = Unknown?
 │   ├─ YES → Run Fix 1 (restart USB4 host router)
@@ -273,7 +270,7 @@ Get-WinEvent -LogName System | Where-Object {
 Get-ChildItem "C:\Windows\System32\AMD\EeuDumps" | Sort-Object CreationTime -Descending | Select-Object -First 5
 ```
 
-Recent files = AMD driver has been crashing. Fix: clean reinstall AMD Adrenalin using DDU (Display Driver Uninstaller) in Safe Mode.
+EeuDump files are created by AMD Crash Defender on any unexpected GPU disconnect or TDR event, including physical cable pulls and eGPU tunnel drops. Having files here does not necessarily mean the driver is broken. Look at the timestamps: if files appear only around known disconnect events, that is normal. If they appear constantly during normal use with no disconnects, the driver may be unstable - in that case a clean reinstall with DDU in Safe Mode is worth trying.
 
 ### Check if Tailscale/WireGuard restarts correlate with GPU drops:
 ```powershell
@@ -285,6 +282,38 @@ Get-WinEvent -LogName "Microsoft-Windows-Kernel-PnP/Configuration" -ErrorAction 
 
 Compare timestamps with GPU dropout events. If they correlate — pause Tailscale during gaming as a test.
 
+---
+
+## 🔁 Auto-Enable Script (Use With Caution)
+
+This script monitors for the GPU appearing in Unknown state and enables it automatically. Useful if your GPU consistently requires a manual enable after connecting.
+
+> ⚠️ **Important warning:** If the dock or DP connection is unstable (rapidly connecting/disconnecting), this script will spam enable calls and can make the GPU driver hang or cause a dropout loop. **Do not run this script while actively troubleshooting connection issues.** Only use it after the connection is stable.
+
+Save as `AMD_eGPU_Enable.ps1`:
+
+```powershell
+while ($true) {
+    $gpu = Get-PnpDevice | Where-Object {
+        $_.InstanceId -like "*VEN_1002*DEV_7480*" -and $_.Status -eq "Unknown"
+    }
+    if ($gpu) {
+        Enable-PnpDevice -InstanceId $gpu.InstanceId -Confirm:$false
+        Start-Sleep -Seconds 5  # debounce, do not remove this
+    }
+    Start-Sleep -Seconds 7
+}
+```
+
+Add to Task Scheduler (runs at login, hidden window):
+```powershell
+$action = New-ScheduledTaskAction -Execute "powershell.exe" `
+    -Argument "-WindowStyle Hidden -ExecutionPolicy Bypass -File C:\Scripts\AMD_eGPU_Enable.ps1"
+$trigger = New-ScheduledTaskTrigger -AtLogOn
+$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit 0
+Register-ScheduledTask -TaskName "AMD_eGPU_Enable" -Action $action `
+    -Trigger $trigger -Settings $settings -RunLevel Highest -Force
+```
 ---
 
 ## 📋 Tested Hardware
@@ -304,9 +333,9 @@ Compare timestamps with GPU dropout events. If they correlate — pause Tailscal
 
 - `CM_PROB_PHANTOM` in device logs = USB4 tunnel dropped briefly, usually self-recovers
 - Two monitor entries with different UIDs (e.g. UID512 and UID516) = normal after GPU reinit, both can coexist
-- AMD EeuDump files grow to ~1MB then roll over — frequent new files = driver instability
+- AMD EeuDump files grow to ~1MB then roll over — frequent new files = driver instability.
 - `pnputil /restart-device` does not cause data loss — equivalent to Device Manager disable/enable
-- USB4 cable quality matters under thermal load — use a certified USB4 40Gbps cable, preferably under 1m
+- USB4 cable quality matters under thermal load. Use a certified USB4 40Gbps cable, preferably under 1m
 - If the GPU fails to initialize without a display connected — plug in an **HDMI dummy plug** to the dock's HDMI port. This tricks the GPU into thinking a monitor is present and forces full driver initialization. No permanent fix found yet; dummy plug is a reliable workaround.
 
 ---
